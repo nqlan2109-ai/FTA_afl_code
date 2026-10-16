@@ -1,0 +1,4 @@
+LogReturn = ln( C / Ref( C, -1 ) );
+HV_100    = StDev( LogReturn, 100 ) * Sqrt( 252 );     // Rule 3
+Plot( HV_100 ,  "Historical Volatility",         colorBlack, styleLine | styleThick  );
+Plot( 0.3 ,  "Benchmark",         colorRed, styleLine | styleThick  );

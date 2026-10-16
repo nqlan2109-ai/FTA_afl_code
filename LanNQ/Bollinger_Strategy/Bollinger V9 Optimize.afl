@@ -1,0 +1,486 @@
+// ====================================================================
+//  BOLLINGER BAND MEAN REVERSION SYSTEM
+//  Dua theo chien luoc cua Larry Connors
+// --------------------------------------------------------------------
+//  Tham so Bollinger Band : SMA(5), Do lech chuan = 1
+//  Historical Volatility  : x_i = ln(P_i / P_{i-1}), HV = StdDev(x,100) * sqrt(252)
+//  %b                     : (Close - Lower) / (Upper - Lower)
+// ====================================================================
+
+fntsize = 8;// font size
+dist = 100;// khoang cach tin hieu tren chart
+bi = Barindex();
+fvb = FirstVisiblevalue( bi );
+lvb = LastVisiblevalue( bi );
+dt = DateTime();
+dtformat = "\n%Y-%m-%d";
+bkcolor = -1;// text background color, -1 means default color (transparent)
+//OptimizerSetEngine("trib");
+//OptimizerSetOption("Runs", 5);
+//OptimizerSetOption("MaxEval", 1000);
+// ====================================================================
+//  PHAN 1: TINH TOAN CAC CHI SO KY THUAT
+// ====================================================================
+
+// --- 1.1 BOLLINGER BAND & %b ---
+BB_Period = 5;
+BB_Mid    = MA( C, BB_Period );
+BB_Upper  = BBandTop( C, BB_Period, 1 );
+BB_Lower  = BBandBot( C, BB_Period, 1 );
+BB_Width  = BB_Upper - BB_Lower;
+percentB  = ( C - BB_Lower ) / BB_Width;
+
+// --- 1.2 HISTORICAL VOLATILITY 100 PHIEN ---
+LogReturn = ln( C / Ref( C, -1 ) );
+HV_100    = StDev( LogReturn, 100 ) * Sqrt( 252 );     // Rule 3
+
+// --- 1.3 ADX 10 PHIEN ---
+ADX_val = ADX( 10 );    // Rule 4
+
+// --- 1.4 MOVING AVERAGES ---
+MA_200 = MA( C, 200 );    // Rule 5
+MA_5   = MA( C, 5 );      // Exit Mode 6
+MA_3   = MA( C, 3 );      // Exit Mode 7
+
+// --- 1.5 VOLUME TRUNG BINH 21 PHIEN ---
+AvgVol21 = MA( V, 21 );
+
+// --- 1.6 RSI 2 PHIEN ---
+RSI2 = RSI( 2 );
+
+// ====================================================================
+//  PHAN 2: DIEU KIEN VAO LENH (ENTRY RULES 1-6)
+// ====================================================================
+
+// Rule 1: Gia co phieu > $10
+Cond1_Price = C > 10;
+
+// Rule 2: Volume trung binh 21 phien >= 200,000
+Cond2_Volume = AvgVol21 >= 200000;
+
+// Rule 3: HV 100 phien > 30% (Goc la 30%)
+Cond3_HV = HV_100 > 0.3;
+
+// Rule 4: ADX 10 phien > 30 (Goc la 30)
+//Cond4_ADX_optimize = Optimize ( "Cond4 ADX", 30, 20, 40, 1);
+Cond4_ADX = ADX_val > 30;
+
+// Rule 5: Gia dong cua tren MA 200 phien
+Cond5_Trend = C > MA_200;
+
+// Rule 6: %b roi vao vung < 0.1 se bat dau dem. Toi thieu phai co 4 phien lien tiep roi vao vung nay
+Cond6_percentB  = 0;
+Current_Zone    = 0;
+Current_Count   = 0;
+Array_Current_Zone  = 0;
+Array_Current_Count = 0;
+required_days_under = Optimize("Days under ( Y )", 4, 2, 4, 1); // Default: 4 phien
+
+for( i = 0; i < BarCount; i++ )
+{
+    pB = percentB[i];
+    if     ( pB >  0.0 AND pB <  0.1 )  zone = 0.1;
+    else if( pB <= 0.0 AND pB > -0.1 )  zone = 0;
+    else if( pB <= -0.1              )  zone = -0.1;
+    else                                zone = 1;  // %b >= 0.1 -> ngoai vung
+
+    if( zone == 1 )
+    {
+        Current_Zone  = Null;
+        Current_Count = 0;
+    }
+    else
+    {
+        if( zone != 1 )
+        {
+            Current_Zone  = zone;
+            Current_Count ++;
+        }
+    }
+
+    // So phien toi thieu yeu cau: tat ca cac vung deu can >= 2 phien
+    Cond6_percentB[i]   = ( Current_Zone < 1 ) AND ( Current_Count >= required_days_under ) AND ( Current_Count <= 4 ); // 4 phien
+    Array_Current_Zone[i]  = Current_Zone;
+    Array_Current_Count[i] = Current_Count;
+}
+
+
+
+// Tin hieu vao lenh: tat ca 6 dieu kien phai dong thoi thoa man
+BuySignal = Cond1_Price
+          AND Cond2_Volume
+          AND Cond3_HV
+          AND Cond4_ADX
+          AND Cond5_Trend
+          AND Cond6_percentB;
+          
+
+// ====================================================================
+//  PHAN 3: RULE 7 - VAO POSITION BUY
+// ====================================================================
+
+Z_pct        = Optimize( "limit % below close ( Z )", 2, 0, 10, 2 ); // Default: 2%
+TradeFee_pct = Param("Trade Fee (%)", 0.15, 0, 5, 0.01);
+EnableStopLoss = ParamToggle("On/Off Stop-Loss", "On|Off", 0);
+StopLoss_pct = Param("Stop-Loss A (%)", 5, 0, 10, 1); // Nguong Stoploss an toan A% (Default: 5%)
+
+Limit_Order_Price = Ref ( C , -1 ) * ( 1 - Z_pct / 100 );
+// Loc cp san lien tuc 
+PriceNotFlat = ( NOT (O == H AND H == L AND L == C) ) AND 
+               ( NOT ( Ref(O,-1) == Ref(H,-1) AND Ref(H,-1) == Ref(L,-1) AND Ref(L,-1) == Ref(C,-1) )) AND
+               ( NOT ( Ref(O,-2) == Ref(H,-2) AND Ref(H,-2) == Ref(L,-2) AND Ref(L,-2) == Ref(C,-2) ));
+// Kiem tra xem gia thap nhat trong ngay co cham muc Limit khong
+Yesterday_Signal = Ref ( BuySignal , -1 ) ;
+Order_Hit = L <= Limit_Order_Price; // Low phai <= gia ke Limit thi moi khop lenh
+
+// Tach biet tin hieu khop va tin hieu hut
+Buy_position        = Yesterday_Signal AND Order_Hit AND PriceNotFlat ;
+Missed_Buy_position = Yesterday_Signal AND NOT Order_Hit;
+
+// Gia mua thuc te
+BuyPrice    = min( Limit_Order_Price , O ) ;
+
+// ====================================================================
+//  PHAN 4: RULE 8 - DIEU KIEN THOAT LENH 
+// ====================================================================
+
+Exit_Mode1 = percentB >= 1.0;
+Exit_Mode2 = percentB >= 0.75;
+Exit_Mode3 = percentB >= 0.50;
+Exit_Mode4 = RSI2 > 70;
+Exit_Mode5 = RSI2 > 50;
+Exit_Mode6 = Close > MA_5;
+Exit_Mode7 = Close > MA_3;
+
+// Tra lai ExitMode 1->7
+ExitMode = Optimize( "ExitMode", 1, 1, 7, 1 ); 
+
+RegularSellSignal = IIf( ExitMode == 1, Exit_Mode1,
+                    IIf( ExitMode == 2, Exit_Mode2,
+                    IIf( ExitMode == 3, Exit_Mode3,
+                    IIf( ExitMode == 4, Exit_Mode4,
+                    IIf( ExitMode == 5, Exit_Mode5,
+                    IIf( ExitMode == 6, Exit_Mode6,
+                                        Exit_Mode7 ) ) ) ) ) );
+
+SellPrice = Close;
+
+// Xac dinh Text cho Exit Mode
+ExitModeText = "Close > SMA(3)";
+if( ExitMode == 6 ) ExitModeText = "Close > SMA(5)";
+if( ExitMode == 5 ) ExitModeText = "RSI(2) > 50";
+if( ExitMode == 4 ) ExitModeText = "RSI(2) > 70";
+if( ExitMode == 3 ) ExitModeText = "%b >= 0.50";
+if( ExitMode == 2 ) ExitModeText = "%b >= 0.75";
+if( ExitMode == 1 ) ExitModeText = "%b >= 1.0 (Upper Band)";
+
+// ====================================================================
+//  PHAN 5: VONG LAP FOR - LUU LAI T+2 VA KHU TIN HIEU TRUNG (STATE MACHINE)
+// ====================================================================
+Buy = 0;
+Sell = 0;
+MissedBuy = 0; 
+Sold_by_SL = 0; 
+Sold_by_Exit = 0; 
+hasPosition = 0;
+buyBar = -1;
+
+TradeYield = Null;
+BarsHeld = Null;
+Trade_BuyPrice = Null;
+Trade_SellPrice = Null;
+
+MaxYield = Null;
+MinYield = Null;
+current_max_c = 0;
+current_min_c = 999999;
+Bars_to_Max = Null;
+Bars_to_5_Percent = Null;
+max_c_bar = -1;
+first_5pct_bar = -1;
+
+for( i = 0; i < BarCount; i++ )
+{
+    if( hasPosition == 0 )
+    {
+        if( Buy_position[i] )
+        {
+            Buy[i] = 1;
+            hasPosition = 1;
+            buyBar = i; // Ghi lai vi tri bar cua lenh Mua gan nhat
+            
+            // Ð?T L?I GIÁ TR? MAX/MIN KHI M?I MUA Ð? TÍNH T? T+2
+            current_max_c = 0;
+            current_min_c = 999999;
+            
+            // Ðat l?i các bi?n theo dõi s? thanh nen
+            max_c_bar = i;
+            first_5pct_bar = -1;
+        }
+        else if ( Missed_Buy_position[i] )
+        {
+            MissedBuy[i] = 1; // Ghi nhan co tin hieu mua nhung khong co gia ke
+        }
+    }
+    else // dang giu vi the (hasPosition == 1)
+    {
+        // K? T? T+2 TR? ÐI M?I B?T Ð?U C?P NH?T MAX/MIN CLOSE
+        if ( (i - buyBar) >= 2 ) 
+        {
+            if( C[i] > current_max_c ) 
+            {
+                current_max_c = C[i];
+                max_c_bar = i; // Luu l?i v? trí d?t m?c giá cao nh?t
+            }
+            
+            if( C[i] < current_min_c ) 
+            {
+                current_min_c = C[i];
+            }
+        }
+
+        // Ki?m tra xem dã d?t hi?u su?t > 5% chua
+        if ( first_5pct_bar == -1 )
+        {
+            temp_buy_cost = BuyPrice[buyBar] * ( 1 + TradeFee_pct / 100 );
+            temp_revenue = C[i] * ( 1 - TradeFee_pct / 100 );
+            temp_yield = ( temp_revenue - temp_buy_cost ) / temp_buy_cost * 100;
+            
+            if ( temp_yield > 5 ) 
+            {
+                first_5pct_bar = i; // Luu l?i v? trí thanh n?n d?u tiên d?t hi?u su?t > 5%
+            }
+        }
+
+        // --- DIEU KIEN STOPLOSS ---
+        StopLoss_Level  = BuyPrice[buyBar] * ( 1 - StopLoss_pct / 100 );
+        StopLoss_Hit = EnableStopLoss AND ( C[i] <= StopLoss_Level );
+
+        // --- DIEU KIEN EXIT MODE TIEU CHUAN ---
+        ExitMode_Hit = RegularSellSignal[i];
+
+        // --- KET HOP CAC DIEU KIEN BAN ---
+        if( (StopLoss_Hit OR ExitMode_Hit) AND ( i - buyBar >= 2 ) )
+        {
+            Sell[i] = 1;
+            hasPosition = 0; // Xoa trang thai vi the, cho doi lenh Buy tiep theo
+            
+            // Ghi nhan nguyen nhan ban
+            if (StopLoss_Hit) {
+                Sold_by_SL[i] = 1;
+            } else {
+                Sold_by_Exit[i] = 1;
+            }
+
+            // Tinh toan hieu suat sau khi tru phi (Cho l?nh Sell th?c t?)
+            buy_cost = BuyPrice[buyBar] * ( 1 + TradeFee_pct / 100 );
+            sell_revenue = SellPrice[i] * ( 1 - TradeFee_pct / 100 );
+            BarsHeld[i] = i - buyBar;
+            TradeYield[i] = ( sell_revenue - buy_cost ) / buy_cost * 100;
+            
+            // Tinh toan Hieu suat Max và Min trong th?i gian gi? l?nh
+            max_revenue = current_max_c * ( 1 - TradeFee_pct / 100 );
+            min_revenue = current_min_c * ( 1 - TradeFee_pct / 100 );
+            MaxYield[i] = ( max_revenue - buy_cost ) / buy_cost * 100;
+            MinYield[i] = ( min_revenue - buy_cost ) / buy_cost * 100;
+
+            // Xu?t s? Bars c?n thi?t cho Exploration
+            Bars_to_Max[i] = max_c_bar - buyBar;
+            if (first_5pct_bar != -1) {
+                Bars_to_5_Percent[i] = first_5pct_bar - buyBar;
+            } else {
+                Bars_to_5_Percent[i] = Null; // N?u không d?t du?c 5% trong quá trình gi?, hi?n th? tr?ng
+            }
+
+            // Luu lai gia mua va gia ban cu the cua trade nay cho Exploration
+            Trade_BuyPrice[i] = BuyPrice[buyBar];
+            Trade_SellPrice[i] = SellPrice[i];
+        }
+    }
+}
+// ====================================================================
+//  PHAN 6: VE BIEU DO CHINH
+// ====================================================================
+
+// --- To mau vung Bollinger Band ---
+PlotOHLC( BB_Upper, BB_Upper, BB_Lower, BB_Lower, "",
+          ColorBlend( colorLightGrey, GetChartBkColor(), 0.8 ),
+          styleNoLabel | styleCloud | styleNoRescale, Null, Null, Null, -1 );
+
+// --- Ve cac duong BB va gia ---
+Plot( BB_Upper, "", colorLightGrey, styleLine | styleNoLabel );
+Plot( BB_Mid,   "", colorRed,       styleLine );
+Plot( BB_Lower, "", colorLightGrey, styleLine | styleNoLabel );
+
+// --- Mui ten Buy/Sell/Missed ---
+PlotShapes( IIf( Buy,  shapeUpArrow,   shapeNone ), colorBrightGreen, 0, Low,  -30 );
+PlotShapes( IIf( Sell, shapeDownArrow, shapeNone ), colorRed,         0, High, -30 );
+PlotShapes( IIf( MissedBuy, shapeUpArrow, shapeNone ), colorYellow, 0, Low, -30 ); // Ve mui ten vang cho lenh xit
+
+// --- Plot BuyPrice / SellPrice / Performance
+PlotTextSetFont( "", "ARIAL", fntsize, BarCount-1, 0, -1 );
+for ( i = fvb; i <= lvb; i++ ) {
+    if( Buy[i] || Sell[i] )	{
+		
+		if( Buy[i] )  {
+            varBuy = "\n@" + BuyPrice[i] + DateTimeFormat(dtformat, dt[i]);
+            PlotText( "Buy" + varBuy, i, L[i], colorGreen, bkcolor, -dist+3*fntsize );
+        }
+		
+        if( Sell[i] ) {
+            varSell = "\n@" + SellPrice[i] + DateTimeFormat(dtformat, dt[i]);
+            varPerf = "\n" + WriteVal(TradeYield[i], 1.2) + "% / " + WriteVal(BarsHeld[i], 1.0) + " bars";
+            
+            PlotText( "Sell" + varSell + varPerf, i, H[i], colorRed, bkcolor, dist );
+        }
+    }
+}
+
+// --- TITLE  ---
+StopLossStatusText = ""; 
+if( EnableStopLoss )
+{
+    StopLossStatusText = EncodeColor(colorRed) + "Stop-Loss Level: -" + WriteVal(StopLoss_pct, 1.1) + "%\n";
+}
+else
+{
+    StopLossStatusText = EncodeColor(colorDarkGrey) + "Stop-Loss Level: TAT\n";
+}
+
+// Ghép chu?i Title hoàn ch?nh
+Title = StrFormat("{{NAME}} - {{INTERVAL}} {{DATE}} | Open %g, Hi %g, Lo %g, Close %g (%.1f%%)\n", O, H, L, C, SelectedValue( ROC( C, 1 ) ) ) +
+        EncodeColor(colorDarkBlue) + "------------------------------------------------------------\n" + 
+        EncodeColor(colorBlack) + "THONG SO KIEM TRA (Selected Bar):\n" +
+        EncodeColor(colorBlue) + "Exit Mode hien tai: " + ExitModeText + "\n" +
+        StopLossStatusText + 
+        EncodeColor(colorBlack) + "Current Zone: " + WriteVal(Array_Current_Zone, 1.2) + "   |   Current Count: " + WriteVal(Array_Current_Count, 1.0) + "\n" +
+        "%b: " + WriteVal(percentB, 1.4) + "   |   HV100: " + WriteVal(HV_100, 1.4) + "   |   ADX10: " + WriteVal(ADX_val, 1.2) + "\n" +
+        "C1 (Price>10): " + WriteVal(Cond1_Price, 1.0) +
+        "   |   C2 (Vol>=250k): " + WriteVal(Cond2_Volume, 1.0) +
+        "   |   C3 (HV100>30%): " + WriteVal(Cond3_HV, 1.0) + "\n" +
+        "C4 (ADX10>30): " + WriteVal(Cond4_ADX, 1.0) +
+        "   |   C5 (C>MA200): " + WriteVal(Cond5_Trend, 1.0) +
+        "   |   C6 (Zone Days): " + WriteVal(Cond6_percentB, 1.0) + "\n" ;
+
+Plot( MA_200,              "MA200",                 colorBlue, styleLine | styleThick| styleNoRescale );
+
+// ====================================================================
+//  PHAN 7: EXPLORATION - HIEN THI TUNG DIEU KIEN
+// ====================================================================
+
+//  FUNCTION: LOC CO PHIEU NHIEU (CHECK LIQUIDITY)
+function Check_Liquid(begin, end, Benchmark_liquid, Output_Unique, Output_liquid, Output_Active, Output_Unique_price)
+{
+	Unique_record = 1;
+	Visit = 0;
+	Sum_unique = 0;
+	Result = True;
+	Sum_zero_vol = 0;
+	Sum_inactive = 0;
+	Unique_check_value = 0;
+	Liquid_check_value = 0;
+	Active_check_value = 0;
+	
+	for (i = begin; i < end; i++)
+	if (Visit[i] == 0)
+	{
+		for (j = i + 1; j < end; j++)
+		if (Visit[j] == 0 AND C[i] == C[j])
+		{
+			Unique_record[j] = 0;
+			Visit[j] = 1;
+		}
+	}
+	for (i = begin; i < end; i++) 
+	{
+		Sum_unique = Sum_unique + Unique_record[i];
+		if (V[i] == 0) Sum_zero_vol++;
+        // Thêm i > 0 de tranh loi truy xuat C[i-1] o index 0
+		if (i > 0 AND O[i] == C[i - 1] AND C[i] == C[i-1] AND H[i] == C[i-1] AND L[i] == C[i-1]) Sum_inactive++;
+	}
+	if (Sum_unique/(end-begin+1) < Benchmark_liquid) 
+	{
+		//Result = False;
+		Unique_check_value = 1;
+	}
+	if (Sum_zero_vol/(end-begin+1) > 0.2)
+	{
+		Result = False;
+		Liquid_check_value = 1;
+	}
+	if (Sum_inactive/(end-begin+1) > 0.5)
+	{
+		Result = False;
+		Active_check_value = 1;
+	}
+	
+	VarSet(Output_Unique, Unique_check_value);
+	VarSet(Output_liquid, Liquid_check_value);
+	VarSet(Output_Active, Active_check_value);
+	VarSet(Output_Unique_price, Sum_unique/(end-begin+1));
+	return Result;
+}
+Is_Liquid_Stock = Check_Liquid(1, BarCount, 0.5, "Out_Unique", "Out_Liquid", "Out_Active", "Out_Unique_price");
+Filter = Sell AND Is_Liquid_Stock; 
+
+AddTextColumn( WriteIf(BuySignal, "Setup Buy", WriteIf(Sell, "Sell", "")), "Action", 1.0, colorBlack, IIf(BuySignal, colorGreen, IIf(Sell, colorRed, iif (Buy, colorViolet, IIf ( MissedBuy, colorYellow, colorDefault )) )));
+
+AddColumn( Close,              "Close",          1.2 );
+AddColumn( AvgVol21,           "AvgVol21",       1.0 );
+AddColumn( percentB,           "%b",             1.4 );
+AddColumn( Limit_Order_Price,  "LimitPrice ( Z )",     1.4 );
+AddTextColumn( ExitModeText,   "Exit Mode"              );
+
+//AddColumn( Cond1_Price,        "C1:Price>10",    1.0 );
+//AddColumn( Cond2_Volume,       "C2:Vol250k",     1.0 );
+//AddColumn( Cond3_HV,           "C3:HV>20%",      1.0 );
+//AddColumn( Cond4_ADX,          "C4:ADX>20",      1.0 );
+//AddColumn( Cond5_Trend,        "C5:>MA200",      1.0 );
+//AddColumn( Cond6_percentB,     "C6:C<%b Y Days",   1.0 );
+
+// ====================================================================
+// COT KET QUA KHI BAN (Gia Mua, Gia Ban, Hieu suat, So Bar)
+// ====================================================================
+
+AddColumn( Trade_BuyPrice, "Gia Mua", 1.4 );
+AddColumn( Trade_SellPrice, "Gia Ban", 1.4 );
+AddColumn( current_max_c, "Gia cao nhat", 1.4);
+AddColumn( current_min_c, "Gia thap nhat", 1.4);
+AddColumn( TradeYield, "Hieu Suat (%)", 1.2, IIf(TradeYield > 0, colorGreen, colorRed) );
+AddColumn( MaxYield, "Max Yield (%)", 1.2, IIf(MaxYield > 0, colorGreen, colorRed) );
+AddColumn( MinYield, "Min Yield (%)", 1.2, IIf(MinYield > 0, colorGreen, colorRed) );
+AddColumn( BarsHeld, "So Bars", 1.0 );
+AddColumn( TradeFee_pct, "Phi giao dich", 1.2);
+AddColumn( Bars_to_Max, "Bars den Max", 1.0 );
+AddColumn( Bars_to_5_Percent, "Bars den >5%", 1.0 );
+
+// ====================================================================
+//  PHAN 8: STATISTICAL
+// ====================================================================
+
+function Market_Cycle()
+{
+    Date_num_signal = DateNum();
+    Cycle_result    = Null;
+    Cycle_result    = Nz( IIf( ( Date_num_signal >= 1060101 AND Date_num_signal <= 1090327 ), 1, Cycle_result ) ); // 01/01/2006 - 27/03/2009
+    Cycle_result    = Nz( IIf( ( Date_num_signal >  1090327 AND Date_num_signal <= 1121019 ), 2, Cycle_result ) ); // 27/03/2009 - 19/10/2012
+    Cycle_result    = Nz( IIf( ( Date_num_signal >  1121019 AND Date_num_signal <= 1160520 ), 3, Cycle_result ) ); // 19/10/2012 - 20/05/2016
+    Cycle_result    = Nz( IIf( ( Date_num_signal >  1160520 AND Date_num_signal <= 1191220 ), 4, Cycle_result ) ); // 20/05/2016 - 20/12/2019
+    Cycle_result    = Nz( IIf( ( Date_num_signal >= 1191220 AND Date_num_signal <= 1230630 ), 5, Cycle_result ) ); // 20/12/2019 - 30/06/2023
+    Cycle_result    = Nz( IIf( Date_num_signal > 1230630, 6, Cycle_result ) );                                     // 30/06/2023 - hien tai
+    return Cycle_result;
+}
+
+CycleNum = Market_Cycle();
+AddColumn( CycleNum, "Cycle Num", 1.0 );
+
+// ====================================================================
+//  PHAN 9: PRICE CHART
+// ====================================================================
+
+_SECTION_BEGIN( "Price" );
+SetChartOptions( 0, chartShowArrows | chartShowDates);
+Plot( C, "Close", ParamColor( "Color", colorDefault ), styleNoTitle | ParamStyle( "Style" ) | GetPriceStyle() );
+_SECTION_END();
+
+// ====================================================================

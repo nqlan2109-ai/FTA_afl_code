@@ -1,0 +1,303 @@
+// ====================================================================
+//  BOLLINGER BAND MEAN REVERSION SYSTEM
+//  Dua theo chien luoc cua Larry Connors
+// --------------------------------------------------------------------
+//  Tham so Bollinger Band : SMA(5), Do lech chuan = 1
+//  Historical Volatility  : x_i = ln(P_i / P_{i-1}), HV = StdDev(x,100) * sqrt(252)
+//  %b                     : (Close - Lower) / (Upper - Lower)
+// ====================================================================
+
+// ====================================================================
+//  PHAN 1: TINH TOAN CAC CHI SO KY THUAT
+// ====================================================================
+
+// --- 1.1 BOLLINGER BAND & %b ---
+BB_Period = 5;
+BB_Mid    = MA( C, BB_Period );
+BB_Upper  = BBandTop( C, BB_Period, 1 );
+BB_Lower  = BBandBot( C, BB_Period, 1 );
+BB_Width  = BB_Upper - BB_Lower;
+percentB  = ( C - BB_Lower ) / BB_Width;
+
+// --- 1.2 HISTORICAL VOLATILITY 100 PHIEN ---
+LogReturn = ln( C / Ref( C, -1 ) );
+HV_100    = StDev( LogReturn, 100 ) * Sqrt( 252 );
+
+// --- 1.3 ADX 10 PHIEN ---
+ADX_val = ADX( 10 );
+
+// --- 1.4 MOVING AVERAGES ---
+MA_200 = MA( C, 200 );
+MA_5   = MA( C, 5 );
+MA_3   = MA( C, 3 );
+
+// --- 1.5 VOLUME TRUNG BINH 21 PHIEN ---
+AvgVol21 = MA( V, 21 );
+
+// --- 1.6 RSI 2 PHIEN ---
+RSI2 = RSI( 2 );
+
+
+// ====================================================================
+//  PHAN 2: DIEU KIEN VAO LENH (ENTRY RULES 1-6)
+// ====================================================================
+
+Cond1_Price  = C > 10;
+Cond2_Volume = AvgVol21 >= 0;
+Cond3_HV     = HV_100 > 0.2;
+Cond4_ADX    = ADX_val > 20;
+Cond5_Trend  = C > MA_200;
+
+Cond6_percentB      = 0;
+Current_Zone        = 0;
+Current_Count       = 0;
+Array_Current_Zone  = 0;
+Array_Current_Count = 0;
+required_days_under = Param( "Days under ( Y )", 4, 2, 4, 1 );
+
+for( i = 0; i < BarCount; i++ )
+{
+    pB = percentB[i];
+    if     ( pB >  0.0 AND pB <  0.1 )  zone = 0.1;
+    else if( pB <= 0.0 AND pB > -0.1 )  zone = 0;
+    else if( pB <= -0.1              )   zone = -0.1;
+    else                                 zone = 1;
+
+    if( zone == 1 )
+    {
+        Current_Zone  = 0;
+        Current_Count = 0;
+    }
+    else
+    {
+        Current_Zone = zone;
+        Current_Count++;
+    }
+
+    Cond6_percentB[i]      = ( Current_Zone < 1 ) AND ( Current_Count >= required_days_under ) AND ( Current_Count <= 4 );
+    Array_Current_Zone[i]  = Current_Zone;
+    Array_Current_Count[i] = Current_Count;
+}
+
+BuySignal = Cond1_Price
+          AND Cond2_Volume
+          AND Cond3_HV
+          AND Cond4_ADX
+          AND Cond5_Trend
+          AND Cond6_percentB;
+
+
+// ====================================================================
+//  PHAN 3: RULE 7 - VAO LENH MUA (BUY ENTRY)
+// ====================================================================
+Z_pct             = Param( "limit % below close ( Z )", 2, 0, 10, 2 );
+Limit_Order_Price = Ref( C, -1 ) * ( 1 - Z_pct / 100 );
+Buy               = Ref( BuySignal, -1 );
+BuyPrice          = Min( Limit_Order_Price, O );
+
+
+// ====================================================================
+//  PHAN 4: RULE 8 - DIEU KIEN THOAT LENH (EXIT)
+// --------------------------------------------------------------------
+//  Tat ca 7 exit mode deu hoat dong DONG THOI sau khi vao lenh.
+//  Mode nao thoat man TRUOC TIEN (bar som hon) thi Sell se xay ra tai do.
+//  Neu nhieu mode cung bat trong cung 1 phien, uu tien theo thu tu 1->7.
+// ====================================================================
+
+Exit_Mode1 = percentB >= 1.0;   // %b vuot Upper Band
+Exit_Mode2 = percentB >= 0.75;  // %b vuot 0.75
+Exit_Mode3 = percentB >= 0.50;  // %b vuot duong giua BB
+Exit_Mode4 = RSI2 > 70;         // RSI(2) vuot 70
+Exit_Mode5 = RSI2 > 50;         // RSI(2) vuot 50
+Exit_Mode6 = Close > MA_5;      // Gia vuot SMA(5)
+Exit_Mode7 = Close > MA_3;      // Gia vuot SMA(3)
+
+// Sell xay ra ngay tai phien DAU TIEN bat ky mode nao duoc thoa man
+SellSignal = Exit_Mode1
+          OR Exit_Mode2
+          OR Exit_Mode3
+          OR Exit_Mode4
+          OR Exit_Mode5
+          OR Exit_Mode6
+          OR Exit_Mode7;
+
+// Xac dinh MODE NAO da kich hoat lenh ban tai phien do
+// Uu tien: Mode1 (kho nhat) -> Mode7 (de nhat)
+// Vi Mode3 bao gom Mode2 bao gom Mode1 (ve %b), uu tien mode kho hon
+// tuong tu RSI2>70 kho hon RSI2>50
+ExitTriggered = IIf( Exit_Mode1, 1,
+                   IIf( Exit_Mode2, 2,
+                   IIf( Exit_Mode3, 3,
+                   IIf( Exit_Mode4, 4,
+                   IIf( Exit_Mode5, 5,
+                   IIf( Exit_Mode6, 6,
+                   IIf( Exit_Mode7, 7, 0 ) ) ) ) ) ) );
+                   
+ExitTriggeredText = WriteIf( ExitTriggered == 1, "Mode1: %b >= 1.0",
+                   WriteIf( ExitTriggered == 2, "Mode2: %b >= 0.75",
+                   WriteIf( ExitTriggered == 3, "Mode3: %b >= 0.50",
+                   WriteIf( ExitTriggered == 4, "Mode4: RSI2 > 70",
+                   WriteIf( ExitTriggered == 5, "Mode5: RSI2 > 50",
+                   WriteIf( ExitTriggered == 6, "Mode6: C > SMA(5)",
+                   WriteIf( ExitTriggered == 7, "Mode7: C > SMA(3)",
+                                                   "-" ) ) ) ) ) ) );
+
+SellPrice = Close;
+Sell      = SellSignal;
+
+
+// ====================================================================
+//  PHAN 5: LOAI BO TIN HIEU TRUNG (ExRem)
+// ====================================================================
+Buy  = ExRem( Buy,  Sell );
+Sell = ExRem( Sell, Buy  );
+
+
+// ====================================================================
+//  PHAN 6: VE BIEU DO CHINH
+// ====================================================================
+
+PlotOHLC( BB_Upper, BB_Upper, BB_Lower, BB_Lower, "",
+          ColorBlend( colorLightGrey, GetChartBkColor(), 0.8 ),
+          styleNoLabel | styleCloud | styleNoRescale, Null, Null, Null, -1 );
+
+Plot( BB_Upper, "", colorLightGrey, styleLine | styleNoLabel );
+Plot( BB_Mid,   "", colorRed,       styleLine );
+Plot( BB_Lower, "", colorLightGrey, styleLine | styleNoLabel );
+
+PlotShapes( IIf( Buy,  shapeUpArrow,   shapeNone ), colorBrightGreen, 0, Low,  -30 );
+PlotShapes( IIf( Sell, shapeDownArrow, shapeNone ), colorRed,         0, High, -30 );
+
+// --- Nhan Buy / Sell kem gia va mode thoat ---
+fntsize = 8;
+dist    = 90;
+bi      = Barindex();
+fvb     = FirstVisiblevalue( bi );
+lvb     = LastVisiblevalue( bi );
+dt      = DateTime();
+dtformat = "\n%Y-%m-%d";
+bkcolor = -1;
+
+PlotTextSetFont( "", "ARIAL", fntsize, BarCount - 1, 0, -1 );
+for( i = fvb; i <= lvb; i++ )
+{
+    if( Buy[i] OR Sell[i] )
+    {
+        varBuy  = "\n@" + BuyPrice[i]  + DateTimeFormat( dtformat, dt[i] );
+        varSell = "\n@" + SellPrice[i] + DateTimeFormat( dtformat, dt[i] );
+        varMode = "\nMode" + ExitTriggered[i];  
+        if( Buy[i] )  
+        {
+        PlotText( "Buy"  + varBuy,  i, L[i], colorGreen, bkcolor, -dist + 3 * fntsize );
+        }
+        if( Sell[i] ) 
+        {
+        PlotText( "Sell" + varSell + varMode, i, H[i], colorRed,   bkcolor,  dist );
+        }
+    }
+}
+
+// --- Plot thong so kiem tra ---
+Plot( Array_Current_Zone,  "Current Zone",          colorBlack, styleLine | styleDashed | styleNoRescale );
+Plot( Array_Current_Count, "Current Count",         colorBlack, styleLine | styleDashed | styleNoRescale );
+Plot( percentB,            "%b",                    colorBlack, styleLine | styleDashed | styleNoRescale );
+Plot( Cond1_Price,         "Cond1_Price",           colorBlack, styleLine | styleDashed | styleNoRescale );
+Plot( Cond2_Volume,        "Cond2_Volume",          colorBlack, styleLine | styleDashed | styleNoRescale );
+Plot( Cond3_HV,            "Cond3_HV",              colorBlack, styleLine | styleDashed | styleNoRescale );
+Plot( Cond4_ADX,           "Cond4_ADX",             colorBlack, styleLine | styleDashed | styleNoRescale );
+Plot( Cond5_Trend,         "Cond5_Trend",           colorBlack, styleLine | styleDashed | styleNoRescale );
+Plot( HV_100,              "Historical Volatility", colorBlack, styleLine | styleDashed | styleNoRescale );
+Plot( MA_200,              "MA200",                 colorBlack, styleLine | styleDashed | styleNoRescale );
+
+
+// ====================================================================
+//  PHAN 7: EXPLORATION
+// ====================================================================
+
+Filter = BuySignal;
+
+AddColumn( Close,               "Close",              1.2 );
+AddColumn( AvgVol21,            "AvgVol21",           1.0 );
+AddColumn( HV_100,              "HV100",              1.4 );
+AddColumn( ADX_val,             "ADX10",              1.2 );
+AddColumn( MA_200,              "MA200",              1.2 );
+AddColumn( percentB,            "%b",                 1.4 );
+AddColumn( Array_Current_Count, "Days Under ( Y )",   1.0 );
+AddColumn( Array_Current_Zone,  "Current Zone ( X )", 1.1 );
+AddColumn( Limit_Order_Price,   "LimitPrice ( Z )",   1.4 );
+
+// Hien thi mode nao se kich hoat thoat lenh som nhat tai phien BuySignal
+// (mang tinh tham khao, vi lenh chua mo tai thoi diem nay)
+AddColumn( ExitTriggered,    "Exit Mode Num",      1.0 );
+AddTextColumn( ExitTriggeredText, "Exit Mode Triggered"   );
+
+AddColumn( Cond1_Price,         "C1:Price>10",        1.0 );
+AddColumn( Cond2_Volume,        "C2:Vol250k",         1.0 );
+AddColumn( Cond3_HV,            "C3:HV>20%",          1.0 );
+AddColumn( Cond4_ADX,           "C4:ADX>20",          1.0 );
+AddColumn( Cond5_Trend,         "C5:>MA200",          1.0 );
+AddColumn( Cond6_percentB,      "C6:C<%b Y Days",     1.0 );
+
+
+// ====================================================================
+//  PHAN 8: STASTISTICAL
+// ====================================================================
+
+function Market_Cycle()
+{
+    Date_num_signal = DateNum();
+    Cycle_result    = Null;
+    Cycle_result    = Nz( IIf( ( Date_num_signal >= 1060101 AND Date_num_signal <= 1090327 ), 1, Cycle_result ) );
+    Cycle_result    = Nz( IIf( ( Date_num_signal >  1090327 AND Date_num_signal <= 1121019 ), 2, Cycle_result ) );
+    Cycle_result    = Nz( IIf( ( Date_num_signal >  1121019 AND Date_num_signal <= 1160520 ), 3, Cycle_result ) );
+    Cycle_result    = Nz( IIf( ( Date_num_signal >  1160520 AND Date_num_signal <= 1191220 ), 4, Cycle_result ) );
+    Cycle_result    = Nz( IIf( ( Date_num_signal >= 1191220 AND Date_num_signal <= 1230630 ), 5, Cycle_result ) );
+    Cycle_result    = Nz( IIf( Date_num_signal > 1230630, 6, Cycle_result ) );
+    return Cycle_result;
+}
+
+CycleNum = Market_Cycle();
+AddColumn( CycleNum, "Cycle Num", 1.0 );
+
+function Measure_performance(Record_point, Start_point, End_point, Break_level, Max_rise_output, Max_rise_index_output, Max_decline_output, Max_decline_index_output)
+{
+	Max_value = C[Record_point];
+	Min_value = C[Record_point];
+	Max_rise_index = Null;
+	Max_decline_index = Null;
+	Max_rise = 0;
+	Max_decline = 0;
+	for (j = Start_point + 3; j < End_point; j++)
+	{
+		if (H[j] > Max_value) 
+		{
+			Max_value = H[j];
+			Max_rise_index = j;
+		}
+		if (L[j] < Min_value) 
+		{
+			Min_value = L[j];
+			Max_decline_index = j;
+		}
+	}
+	Max_rise = Max_value/Break_level - 1;
+	Max_decline = 1 - Min_value/Break_level;
+	
+	VarSet(Max_rise_output, Max_rise);
+	VarSet(Max_rise_index_output, Max_rise_index);
+	VarSet(Max_decline_output, Max_decline);
+	VarSet(Max_decline_index_output, Max_decline_index);
+}
+
+// ====================================================================
+//  PHAN 9: PRICE CHART
+// ====================================================================
+_SECTION_BEGIN( "Price" );
+SetChartOptions( 0, chartShowArrows | chartShowDates );
+Plot( C, "Close", ParamColor( "Color", colorDefault ), styleNoTitle | ParamStyle( "Style" ) | GetPriceStyle() );
+_SECTION_END();
+
+
+// ====================================================================
+//  EOF - BB Mean Reversion System
+// ====================================================================

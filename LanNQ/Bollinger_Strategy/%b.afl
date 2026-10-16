@@ -1,0 +1,7 @@
+BB_Period = 5;
+BB_Mid    = MA( C, BB_Period );
+BB_Upper  = BBandTop( C, BB_Period, 1 );
+BB_Lower  = BBandBot( C, BB_Period, 1 );
+BB_Width  = BB_Upper - BB_Lower;
+percentB  = ( C - BB_Lower ) / BB_Width;
+Plot( percentB ,  "%b",         colorBlack, styleLine | styleThick  );

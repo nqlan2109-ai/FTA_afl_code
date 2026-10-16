@@ -1,0 +1,250 @@
+// ====================================================================
+//  BOLLINGER BAND MEAN REVERSION SYSTEM
+//  Dua theo chien luoc cua Larry Connors
+// --------------------------------------------------------------------
+//  Tham so Bollinger Band : SMA(5), Do lech chuan = 1
+//  Historical Volatility  : x_i = ln(P_i / P_{i-1}), HV = StdDev(x,100) * sqrt(252)
+//  %b                     : (Close - Lower) / (Upper - Lower)
+// ====================================================================
+
+// ====================================================================
+//  PHAN 1: TINH TOAN CAC CHI SO KY THUAT
+// ====================================================================
+
+// --- 1.1 BOLLINGER BAND & %b ---
+BB_Period = 5;
+BB_Mid    = MA( C, BB_Period );
+BB_Upper  = BBandTop ( C, BB_Period, 1 );
+BB_Lower  = BBandBot ( C, BB_Period, 1 );
+BB_Width = BB_Upper - BB_Lower;
+percentB =  ( C - BB_Lower ) / BB_Width;
+
+// --- 1.2 HISTORICAL VOLATILITY 100 PHIEN ---
+// Buoc 1: Tinh log return tung phien: x_i = ln(P_i / P_{i-1})
+// Buoc 2: HV = StdDev(x_i, 100) * sqrt(252) * 100  [annualized, don vi %]
+LogReturn = ln( C / Ref( C, -1 ) );
+HV_100    = StDev( LogReturn, 100 ) * Sqrt( 252 );     // Rule 3
+
+// --- 1.3 ADX 10 PHIEN ---
+ADX_val = ADX( 10 );    // Rule 4
+
+// --- 1.4 MOVING AVERAGES ---
+MA_200 = MA( C, 200 );    // Rule 5
+MA_5   = MA( C, 5 );      // Exit Mode 6
+MA_3   = MA( C, 3 );      // Exit Mode 7
+
+// --- 1.5 VOLUME TRUNG BINH 21 PHIEN ---
+AvgVol21 = MA( V, 21 );
+
+// --- 1.6 RSI 2 PHIEN ---
+RSI2 = RSI( 2 );
+
+// ====================================================================
+//  PHAN 2: DIEU KIEN VAO LENH (ENTRY RULES 1-6)
+// ====================================================================
+
+// Rule 1: Gia co phieu > $5
+Cond1_Price = C > 10;
+
+// Rule 2: Volume trung binh 21 phien >= 250,000
+Cond2_Volume = AvgVol21 >= 250000;
+
+// Rule 3: HV 100 phien > 20% (Goc la 30%)
+Cond3_HV = HV_100 > 0.2;
+
+// Rule 4: ADX 10 phien > 20 (Goc la 30)
+Cond4_ADX = ADX_val > 20;
+
+// Rule 5: Gia dong cua tren MA 200 phien
+Cond5_Trend = C > MA_200;
+
+// Rule 6: %b roi vao vung < 0.1 se bat dau dem. Toi thieu phai co 2 phien lien tiep roi vao vung nay
+//   TH1:  0.0 < %b <  0.1  (Goc la 2 phien)
+//   TH2: -0.1 < %b <= 0.0  (Goc la 3 phien)
+//   TH3:        %b <= -0.1 (Goc la 4 phien)
+
+Cond6_percentB = 0;   
+Current_Zone  = 0;           
+Current_Count = 0;          
+Array_Current_Zone = 0;
+Array_Current_Count = 0;
+
+for( i = 0; i < BarCount; i++ )
+{
+    {
+         // Xac dinh %b dang o vung nao
+        pB = percentB[i];
+
+        if     ( pB >  0.0 AND pB <  0.1 )  zone = 1;
+        else if( pB <= 0.0 AND pB > -0.1 )  zone = 2;
+        else if( pB <= -0.1              )   zone = 3;
+        else                                 zone = 0;  // %b >= 0.1 -> ngoai vung
+
+        if( zone == 0 )
+        {
+            Current_Zone  = 0;         
+            Current_Count = 0;
+        }
+        else if( zone != 0 )
+        {
+            Current_Zone = zone;
+            Current_Count ++;
+        }
+
+        // So ngay yeu cau tuong ung tung vung
+        if     ( Current_Zone != 0 )  required_minimum = 2;
+                
+        Cond6_percentB[i] = ( Current_Zone > 0 ) AND ( Current_Count >= required_minimum ) AND ( Current_Count <= 4 );
+    }
+    Array_Current_Zone[i]  = Current_Zone;
+    Array_Current_Count[i] = Current_Count;
+}
+
+// Tin hieu vao lenh: tat ca 6 dieu kien phai dong thoi thoa man
+EntrySignal = Cond1_Price
+          AND Cond2_Volume
+          AND Cond3_HV
+          AND Cond4_ADX
+          AND Cond5_Trend
+          AND Cond6_percentB;
+
+
+// ====================================================================
+//  PHAN 3: RULE 7 - VAO LENH MUA (BUY ENTRY)
+// ====================================================================
+// Khi EntrySignal = TRUE o phien hom nay:
+//   -> Dat lenh gioi han MUA = Close_hom_nay * (1 - Z/100)
+//   -> Lenh duoc khop vao NGAY MAI neu gia xuong den muc limit do
+
+// Gia limit = gia dong cua hom truoc * (1 - Z%)
+Z_pct = Param( "Z (limit % below close)", 0, 0, 10 , 2);
+LimitPrice = Ref( Close, -1 ) * ( 1 - Z_pct / 100 );
+
+// Dieu kien lenh mua khop ngay mai:
+//   1. Hom truoc co tin hieu vao lenh (EntrySignal = TRUE)
+//   2. Hom nay gia thap nhat cham hoac xuong duoi gia limit
+LimitHit = Ref( EntrySignal, -1 ) AND ( Low <= LimitPrice );
+
+// Gia vao lenh thuc te:
+//   - Neu Open <= LimitPrice: gia mo cua gap down qua limit
+//     -> Vao tai gia Open (khong the khop tot hon gia mo cua)
+//   - Neu Open > LimitPrice nhung Low <= LimitPrice
+//     -> Khop dung tai gia LimitPrice
+BuyPrice = IIf( Open <= LimitPrice, Open, LimitPrice );
+Buy = LimitHit;
+
+
+// ====================================================================
+//  PHAN 4: RULE 8 - DIEU KIEN THOAT LENH (EXIT)
+// ====================================================================
+
+// ExitMode : Che do thoat lenh
+// 1 = %b >= 1.0  (gia dong cua tai hoac tren Upper Band)
+// 2 = %b >= 0.75 (gia dong cua tren 75% dai BB)
+// 3 = %b >= 0.50 (gia dong cua tren duong giua BB)
+// 4 = RSI(2) > 70 (RSI 2 phien vuot 70)
+// 5 = RSI(2) > 50 (RSI 2 phien vuot 50)
+// 6 = Gia dong cua vuot SMA 5 phien
+// 7 = Gia dong cua vuot SMA 3 phien
+
+Exit_Mode1 = percentB >= 1.0;
+Exit_Mode2 = percentB >= 0.75;
+Exit_Mode3 = percentB >= 0.50;
+Exit_Mode4 = RSI2 > 70;
+Exit_Mode5 = RSI2 > 50;
+Exit_Mode6 = Close > MA_5;
+Exit_Mode7 = Close > MA_3;
+
+ExitMode = Optimize( "ExitMode", 1, 1, 7, 1 );
+
+// Chon dieu kien thoat theo ExitMode
+SellSignal = IIf( ExitMode == 1, Exit_Mode1,
+             IIf( ExitMode == 2, Exit_Mode2,
+             IIf( ExitMode == 3, Exit_Mode3,
+             IIf( ExitMode == 4, Exit_Mode4,
+             IIf( ExitMode == 5, Exit_Mode5,
+             IIf( ExitMode == 6, Exit_Mode6,
+                                 Exit_Mode7 ) ) ) ) ) );
+
+// Tat ca mode thoat tai gia dong cua
+SellPrice = Close;
+Sell      = SellSignal;
+
+
+// ====================================================================
+//  PHAN 5: LOAI BO TIN HIEU TRUNG (ExRem)
+// ====================================================================
+// ExRem dam bao chi giu 1 lenh Buy cho den khi co Sell va nguoc lai
+Buy  = ExRem( Buy,  Sell );
+Sell = ExRem( Sell, Buy  );
+
+// ====================================================================
+//  PHAN 6: VE BIEU DO CHINH
+// ====================================================================
+
+// --- Ve cac duong BB va gia ---
+Plot( BB_Upper, "",  colorLightGrey, styleLine | styleNoLabel );
+Plot( BB_Mid,   "",    colorRed, styleLine );
+Plot( BB_Lower, "",  colorLightGrey, styleLine | styleNoLabel );
+PlotOHLC( BB_Upper, BB_Upper, BB_Lower, BB_Lower, "", ColorBlend( colorLightGrey, GetChartBkColor(), 0.8 ), styleNoLabel | styleCloud | styleNoRescale, Null, Null, Null, -1 );
+
+// --- Mui ten Buy/Sell ---
+PlotShapes( IIf( Buy,  shapeUpArrow,   shapeNone ), colorBrightGreen, 0, Low,  -30 );
+PlotShapes( IIf( Sell, shapeDownArrow, shapeNone ), colorRed,         0, High, -30 );
+
+// --- Plot thong so ---
+Plot( Array_Current_Zone, "Current Zone", colorBlack, styleLine | styleDashed | styleNoRescale );
+Plot( Array_Current_Count, "Current Count", colorBlack, styleLine | styleDashed | styleNoRescale );
+Plot( percentB, "%b", colorBlack, styleLine | styleDashed | styleNoRescale );
+Plot( Cond1_Price, "Cond1_Price", colorBlack, styleLine | styleDashed | styleNoRescale );
+Plot( Cond2_Volume, "Cond2_Volume", colorBlack, styleLine | styleDashed | styleNoRescale );
+Plot( Cond3_HV, "Cond3_HV", colorBlack, styleLine | styleDashed | styleNoRescale );
+Plot( Cond4_ADX, "Cond4_ADX", colorBlack, styleLine | styleDashed | styleNoRescale );
+Plot( Cond5_Trend, "Cond5_Trend", colorBlack, styleLine | styleDashed | styleNoRescale );
+Plot( HV_100, "Historical Volatility", colorBlack, styleLine | styleDashed | styleNoRescale );
+Plot( MA_200, "MA200", colorBlack, styleLine | styleDashed | styleNoRescale );
+
+// ====================================================================
+//  PHAN 7: BANG THONG TIN
+// ====================================================================
+ExitModeText = "Close > SMA(3)";                         // default = Mode 7
+if( ExitMode == 6 ) ExitModeText = "Close > SMA(5)";
+if( ExitMode == 5 ) ExitModeText = "RSI(2) > 50";
+if( ExitMode == 4 ) ExitModeText = "RSI(2) > 70";
+if( ExitMode == 3 ) ExitModeText = "%b >= 0.50";
+if( ExitMode == 2 ) ExitModeText = "%b >= 0.75";
+if( ExitMode == 1 ) ExitModeText = "%b >= 1.0 (Upper Band)";
+
+// ====================================================================
+//  PHAN 11: HIEN THI TRANG THAI TUNG DIEU KIEN (EXPLORATION / SCAN)
+// ====================================================================
+
+Filter = 1;   // Hien tat ca co phieu khi chay Exploration
+
+AddColumn( Close,            "Close",       1.2 );
+AddColumn( AvgVol21,         "AvgVol21",    1.0 );
+AddColumn( HV_100,           "HV100",       1.2 );
+AddColumn( ADX_val,          "ADX10",       1.2 );
+AddColumn( MA_200,           "MA200",       1.2 );
+AddColumn( percentB,         "%b",          1.4 );
+AddColumn( EntrySignal,      "EntrySignal", 1.0 );
+AddColumn( LimitPrice,       "LimitPrice",  1.4 );
+AddtextColumn( ExitModeText,     "ExitMode",    1.4 );
+
+// Ket qua tung dieu kien (1 = thoa man, 0 = khong thoa man)
+AddColumn( Cond1_Price,      "C1:Price>5",  1.0 );
+AddColumn( Cond2_Volume,     "C2:Vol250k",  1.0 );
+AddColumn( Cond3_HV,         "C3:HV>30",   1.0 );
+AddColumn( Cond4_ADX,        "C4:ADX>30",  1.0 );
+AddColumn( Cond5_Trend,      "C5:>MA200",  1.0 );
+AddColumn( Cond6_percentB, "C6:%b < X Days", 1.0 );
+
+
+// ====================================================================
+//  EOF - BB Mean Reversion System
+// ====================================================================
+
+_SECTION_BEGIN("Price");
+SetChartOptions(0,chartShowArrows|chartShowDates);
+Plot( C, "Close", ParamColor("Color", colorDefault ), styleNoTitle | ParamStyle("Style") | GetPriceStyle() ); 
+_SECTION_END();

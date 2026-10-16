@@ -1,0 +1,13 @@
+function Market_Cycle()
+{
+	Date_num_signal = DateNum();
+	Cycle_result = Null;
+	Cycle_result = Nz(IIf((Date_num_signal >= 1060101 AND Date_num_signal <= 1090327), 1, Cycle_result));
+	Cycle_result = Nz(IIf((Date_num_signal > 1090327 AND Date_num_signal <= 1121019), 2, Cycle_result));
+	Cycle_result = Nz(IIf((Date_num_signal > 1121019 AND Date_num_signal <= 1160520), 3, Cycle_result));
+	Cycle_result = Nz(IIf((Date_num_signal > 1160520 AND Date_num_signal <= 1191220), 4, Cycle_result));
+	Cycle_result = Nz(IIf((Date_num_signal >= 1191220 AND Date_num_signal <= 1230630), 5, Cycle_result));
+	Cycle_result = Nz(IIf(Date_num_signal > 1230630, 6, Cycle_result));
+	return Cycle_result;
+}
+
