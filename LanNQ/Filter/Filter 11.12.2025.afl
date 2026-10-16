@@ -1,0 +1,38 @@
+Timeframe  		= 100;
+BaseLowerLimit 	= 0.65;
+PivotLength 	= 20;
+VolTf		 	= 20;
+PVLimit 		= 0.2;
+
+Ticker = Name();
+
+HighPrice = HHV(C, Timeframe);
+LowPrice = LLV(C, Timeframe);
+NearHigh  = C < HighPrice AND C > BaseLowerLimit * HighPrice AND LowPrice > HighPrice * BaseLowerLimit ;
+//Vma = MA(V, VolTf);
+//VolSlope = LinRegSlope(Vma, VolTf);
+//VolIncreasing = VolSlope > 0;
+
+PivotHighPrice  = HHV(H, PivotLength);
+PivotLowPrice	= LLV(L, PivotLength);
+PivotStartHP	= Ref(H, -PivotLength +1);
+PivotWidth 		= (PivotHighPrice - PivotLowPrice)/PivotHighPrice;
+IsPivot 		= PivotWidth < PVLimit AND PivotHighPrice == PivotStartHP;
+
+
+Results = NearHigh AND IsPivot AND C < PivotHighPrice AND C > PivotLowPrice AND LowPrice/HighPrice - 1 < -0.2 ;
+
+Filter = Results;
+Buy = Results;
+
+shape = Buy * shapeUpArrow;
+PlotShapes( shape*5, IIf( Buy, colorGreen, colorRed ), 0, IIf( Buy, Low, High ));
+GraphXSpace = 5;
+
+AddColumn(MA(V, 20),"Volume", 1.0);
+AddColumn(C,"Close", 1.2);
+AddColumn(HighPrice,"HighPrice", 1.2);
+AddColumn(LowPrice,"LowPrice", 1.2);
+AddColumn(LowPrice/HighPrice - 1,"ratio", 1.2);
+AddColumn(PivotHighPrice,"PivotHigh", 1.2);
+AddColumn(PivotLowPrice,"PivotLow", 1.2);

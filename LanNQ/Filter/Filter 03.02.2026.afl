@@ -1,0 +1,173 @@
+_SECTION_BEGIN("Pivot high low");
+
+procedure alternate_proc( pk, tr, sumpk, sumtr )
+{
+    global pkg;
+    global trg;
+
+    pkg = pk;
+    trg = tr;
+    idxpk = 0;
+    idxtr = 0;
+    flgtr = 0;
+    flgpk = 0;
+
+    for( i = 1; i < BarCount; i++ )
+    {
+        if( pk[i] AND sumpk[i] == 1 AND !tr[i] AND flgpk == 0 )
+        {
+            idxpk = i;
+            flgtr = 0;
+        }
+        else
+            if( ( pk[i] AND sumpk[i] > 1 AND !tr[i] ) OR( pk[i] AND flgpk == 1 ) )
+            {
+                if( H[i] > H[idxpk] )
+                {
+                    pkg[idxpk] = 0;
+                    idxpk = i;
+                    flgpk = 0;
+                }
+                else
+                    if( H[i] <= H[idxpk] )
+                    {
+                        pkg[i] = 0;
+                        flgpk = 0;
+                    }
+            }
+            else
+                if( tr[i] AND sumtr[i] == 1 AND !pk[i] AND flgtr == 0 )
+                {
+                    idxtr = i;
+                    flgpk = 0;
+                }
+                else
+                    if( ( tr[i] AND sumtr[i] > 1 AND !pk[i] ) OR( tr[i] AND flgtr == 1 ) )
+                    {
+                        if( L[i] < L[idxtr] )
+                        {
+                            trg[idxtr] = 0;
+                            idxtr = i;
+                            flgtr = 0;
+                        }
+                        else
+                            if( L[i] >= L[idxtr] )
+                            {
+                                trg[i] = 0;
+                                flgtr = 0;
+                            }
+                    }
+                    else
+                        if( pk[i] AND tr[i] )
+                        {
+                            if( sumpk[i - 1] > sumtr[i - 1] )
+                            {
+                                pkg[i] = 0;
+                                flgtr = 1;
+                                idxtr = i;
+                            }
+                            else
+                                if( sumtr[i - 1] > sumpk[i - 1] )
+                                {
+                                    trg[i] = 0;
+                                    flgpk = 1;
+                                    idxpk = i;
+                                }
+                        }
+    }
+}
+
+// Fractal Pivots
+x = bi = BarIndex();
+fvb = FirstVisibleValue( bi );
+lvb = LastVisibleValue( bi );
+
+rightstrength = Param( "Right Strength", 9, 2, 50, 1 );
+leftstrength = Param( "Left Strength", 9, 2, 50, 1 );
+leftstrength = rightstrength;
+
+pk = H == HHV( H, leftstrength ) AND Ref( HHV( H, rightstrength ), rightstrength ) < H;
+tr = L == LLV( L, leftstrength ) AND Ref( LLV( L, rightstrength ), rightstrength ) > L;
+
+sumpk = Sum( pk, BarsSince( tr ) );
+sumtr = Sum( tr, BarsSince( pk ) );
+alternate_proc( pk, tr, sumpk, sumtr );
+pk = pkg;
+tr = trg;
+
+for( i = 0; i < 3; i++ )
+{
+    VarSet( "px" + i, ValueWhen( pk, bi, i ) );
+    VarSet( "tx" + i, ValueWhen( tr, bi, i ) );
+    VarSet( "ph" + i, ValueWhen( pk, H, i ) );
+    VarSet( "tl" + i, ValueWhen( tr, L, i ) );
+}
+
+ll = tr AND tl1 < tl2; // lower low	
+hl = tr AND tl1 > tl2; // higher low
+hh = pk AND ph1 > ph2; // higher high
+lh = pk AND ph1 < ph2; // lower high
+dt = pk AND ph1 == ph2;// double top
+db = tr AND tl1 == tl2;// double bottom
+
+HigherVol = LinRegSlope(MA(V, 20), BarIndex() - tl2) > 0; 
+            //OR LinRegSlope(MA(V, 10), BarIndex() - px2) > 0 ;
+VCP1 = ph1 > ph2 AND tl1 > tl2  AND C < ph1 AND C > tl1 AND C > MA( C, 60) AND ph1 < 1.1 * ph2 AND tl1 < 1.1 * tl2;
+//VCP2 = ph1 > 1.05 * ph2 AND tl1 > 1.05 * tl2  AND C < ph1 AND C > tl1 AND ph1 < 1.2 * ph2;
+//AND ( C/MA(C, 20) - 1 ) < 0.2 
+//VCP2 = ph1 < 1.02*ph2 AND tl1 > 0.98*tl2 AND HigherVol AND C < ph1 AND C > tl1 AND Ref(C,-1) < ph1;
+
+clrpk = colorblack;
+clrtr = colorblack;
+
+for( i = lvb; i > fvb; i-- )
+{
+    // troughs
+    if( ll[i] )
+    {
+        str = "" + WriteVal(L[i],8.2);
+        PlotTextSetFont( str, "Arial", 8, i, L[i], clrtr, colorDefault, -30 );
+    }
+
+    if( hl[i] )
+    {
+        str = "" + WriteVal(L[i],8.2);
+        PlotTextSetFont( str, "Arial", 8, i, L[i], clrtr, colorDefault, -30 );
+    }
+
+    if( db[i] )
+    {
+        str = "DB";
+        PlotTextSetFont( str, "Arial", 8, i, L[i], clrtr, colorDefault, -30 );
+    }
+
+    //peaks
+    if( hh[i] )
+    {
+        str = ""+WriteVal(H[i],8.2);
+        PlotTextSetFont( str, "Arial", 8, i, H[i], clrpk, colorDefault, 20 );
+    }
+
+    if( lh[i] )
+    {
+        str = "" +WriteVal(H[i],8.2);
+        PlotTextSetFont( str, "Arial", 8, i, H[i], clrpk, colorDefault, 20 );
+    }
+
+    if( dt[i] )
+    {
+        str = "DT";
+        PlotTextSetFont( str, "Arial", 8, i, H[i], clrpk, colorDefault, 20 );
+    }
+}
+
+GraphXSpace = 8;
+Plot( Close,"Price",colorBlack,styleCandle);
+
+
+//Buy = (VCP1) AND Cross(C,ph1);
+//Sell = (VCP1) AND Cross(C,tl1);
+
+Filter = (VCP1) AND MA( V, 20) > 500000 AND HigherVol; //MA(V, 20) > 270000; //AND C > MA(C, 200) AND ( C/MA(C, 200) - 1 ) < 0.1;
+
+AddColumn(C,"Close", 1.2, colorBlue);

@@ -1,0 +1,33 @@
+// ==== Loc_VoNenGiam_RSI_v5.afl ====
+N          = 30;   // So phien xac dinh vung day/nen
+BandPct    = 5;    // % bien do vung nen tinh tu day thap nhat
+RSI_Period = 14;
+// Xac dinh vung NEN cua GIA 
+Low30   = LLV(L, N);
+BandTop = Low30 * (1 + BandPct/100);
+// Gia hien tai van nam trong vung nen 
+GiaTrongNen = C >= Low30 AND C <= BandTop; 
+// ----- Nen cua RSI theo chieu GIAM -----
+RSIVal      = RSI(RSI_Period);
+// Tim muc RSI thap nhat trong N phien (tinh tu phien hom qua tro ve truoc de lam ho tro)
+RSI_Support = Ref(LLV(RSIVal, N), -1);
+ 
+// Dieu kien: Hom nay RSI chinh thuc thung ho tro, nhung hom qua no van nam tren ho tro
+RSIVuaVoGiam = RSIVal < RSI_Support AND Ref(RSIVal, -1) >= RSI_Support;
+// ----- BO LOC CHINH -----
+// Gia van giu duoc nen nhung RSI da phat tin hieu canh bao som (Gao cat xuong)
+BoLoc1 = GiaTrongNen AND RSIVuaVoGiam;
+// Gan vao bo loc Filter cua Amibroker
+Filter = BoLoc1 AND MA ( V , 20 ) > 200000;
+// Mua hay ban (khong quan trong, de mac dinh 1 de hien thi trong Exploration)
+Buy = 0; 
+// ----- XUAT DU LIEU RA BANG EXPLORATION -----
+Nhom = "Trong nen, RSI vo giam truoc";
+AddTextColumn(Nhom, "Nhom tin hieu", 1.0, colorBlack, colorYellow);
+AddColumn(C, "Gia dong cua", 1.2);
+AddColumn(Low30, "Day 30 ngay", 1.2);
+AddColumn(BandTop, "Tran vung nen", 1.2);
+AddColumn((C - Low30) / Low30 * 100, "% Cach day", 1.2);
+AddColumn(RSIVal, "RSI Hien tai", 1.2, colorWhite, IIf(RSIVuaVoGiam, colorRed, colorDefault));
+AddColumn(RSI_Support, "Ho tro RSI (" + N + "p)", 1.2);
+AddColumn(V, "Khoi luong", 1.0);

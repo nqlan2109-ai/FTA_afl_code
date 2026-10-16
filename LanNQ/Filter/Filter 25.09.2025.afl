@@ -1,0 +1,103 @@
+// =====================================================
+// B? L?C C? PHI?U THEO 5 TIÊU CHÍ
+// =====================================================
+
+_SECTION_BEGIN("Strong Stock Filter");
+
+// Tính các du?ng EMA
+EMA20 = EMA(Close, 20);
+EMA60 = EMA(Close, 60);
+EMA200 = EMA(Close, 200);
+
+// Ð?nh nghia s? phiên (trading days)
+period1Month = 20;   // 1 tháng = 21 phiên
+period3Month = 60;   // 3 tháng = 63 phiên
+
+// ==== TIÊU CHÍ 1: Giá hi?n t?i trên c? 3 EMA ====
+aboveAllEMA = Close > EMA20 AND Close > EMA60 AND Close > EMA200;
+
+// ==== TIÊU CHÍ 2: EMA s?p x?p dúng th? t? tang ====
+emaAlignment = EMA20 > EMA60 AND EMA60 > EMA200;
+
+// ==== TIÊU CHÍ 3: V?n gi? du?c dáy 1 tháng g?n nh?t ====
+// Tìm dáy th?p nh?t trong 1 tháng
+lowest1Month = LLV(Low, period1Month);
+// Giá hi?n t?i không th?p hon dáy 1 tháng (cho phép test l?i nhung không phá)
+holdSupport = Close >= lowest1Month;
+
+// ==== TIÊU CHÍ 4: Tang ít nh?t 20% trong 3 tháng ====
+price3MonthAgo = Ref(Close, -period3Month);
+return3Month = 100 * (Close - price3MonthAgo) / price3MonthAgo;
+gain20Percent = return3Month >= 20;
+
+// ==== TIÊU CHÍ 5: Gi?m không quá 6% t? d?nh trong 1 tháng ====
+highest1Month = HHV(High, period1Month);
+drawdownFromPeak = 100 * (highest1Month - Close) / highest1Month;
+maxDrawdown6Percent = drawdownFromPeak <= 6;
+
+// ==== K?T H?P T?T C? TIÊU CHÍ ====
+finalFilter = aboveAllEMA AND emaAlignment AND holdSupport AND 
+              gain20Percent AND maxDrawdown6Percent AND MA(V,20) > 500000;
+
+// ==== HI?N TH? K?T QU? ====
+Filter = finalFilter;
+
+// Thông tin co b?n
+
+AddColumn(Close, "Close", 1.2);
+AddColumn(MA(Volume,20), "Volume TB 20P", 1.0);
+
+// Thông tin EMA
+AddColumn(EMA20, "EMA20", 1.2);
+AddColumn(EMA60, "EMA60", 1.2);
+AddColumn(EMA200, "EMA200", 1.2);
+
+// Thông tin performance
+AddColumn(return3Month, "Return 3M%", 1.2, colorWhite, 
+          IIf(return3Month >= 20, colorDarkGreen, colorGrey40));
+          
+AddColumn(drawdownFromPeak, "Drawdown%", 1.2, colorWhite,
+          IIf(drawdownFromPeak <= 6, colorDarkGreen, colorRed));
+
+AddColumn(lowest1Month, "Support 1M", 1.2);
+AddColumn(highest1Month, "Peak 1M", 1.2);
+
+// Các c?t check di?u ki?n (1 = d?t, 0 = không d?t)
+AddColumn(aboveAllEMA, "Above EMA", 1.0, colorWhite,
+          IIf(aboveAllEMA, colorGreen, colorRed));
+          
+AddColumn(emaAlignment, "EMA Align", 1.0, colorWhite,
+          IIf(emaAlignment, colorGreen, colorRed));
+          
+AddColumn(holdSupport, "Hold Support", 1.0, colorWhite,
+          IIf(holdSupport, colorGreen, colorRed));
+          
+AddColumn(gain20Percent, "Gain 20%", 1.0, colorWhite,
+          IIf(gain20Percent, colorGreen, colorRed));
+          
+AddColumn(maxDrawdown6Percent, "Max DD 6%", 1.0, colorWhite,
+          IIf(maxDrawdown6Percent, colorGreen, colorRed));
+
+// C?t t?ng k?t
+AddColumn(finalFilter, "PASS ALL", 1.0, colorWhite,
+          IIf(finalFilter, colorDarkGreen, colorGrey40));
+
+// ==== V? CHART (TÙY CH?N) ====
+SetChartOptions(0, chartShowArrows | chartShowDates);
+
+// V? n?n và EMA
+Plot(Close, "Close", colorDefault, styleCandle);
+Plot(EMA20, "EMA20", colorBlue, styleLine);
+Plot(EMA60, "EMA60", colorOrange, styleLine);  
+Plot(EMA200, "EMA200", colorRed, styleLine);
+
+// Ðánh d?u support và resistance levels
+Plot(lowest1Month, "Support 1M", colorGreen, styleDots);
+Plot(highest1Month, "Peak 1M", colorRed, styleDots);
+
+// Highlight c? phi?u d?t tiêu chí
+PlotShapes(IIf(finalFilter, shapeUpArrow, shapeNone), 
+           colorGreen, 0, Low, -15);
+
+
+_SECTION_END();

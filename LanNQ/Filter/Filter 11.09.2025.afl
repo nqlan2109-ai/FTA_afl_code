@@ -1,0 +1,47 @@
+// B? l?c c? phi?u: Giá trên EMA 20/60/200, không phá dáy 10 phiên, Volume TB20 > 500K, Giá > 20
+
+_SECTION_BEGIN("EMA-Support-Filter-Enhanced");
+
+// ==== 1. Tính các du?ng EMA ====
+EMA20  = EMA(Close, 20);
+EMA60  = EMA(Close, 60);
+EMA200 = EMA(Close, 200);
+
+// ==== 2. Ði?u ki?n 1: Giá hi?n t?i trên c? 3 EMA ====
+AboveAllEMA = Close > EMA20 AND Close > EMA60 AND Close > EMA200;
+
+// ==== 3. Ði?u ki?n 2: Giá không phá xu?ng dáy g?n nh?t trong 10 phiên ====
+// Tìm dáy th?p nh?t trong 10 phiên g?n nh?t
+LowestLow10 = LLV(Low, 10);
+
+// Ki?m tra giá dóng c?a không phá xu?ng dáy này
+NoBreakSupport = Close >= LowestLow10;
+
+// ==== 4. Ði?u ki?n 3: Volume trung bình 20 phiên > 500,000 ====
+AvgVolume20 = MA(Volume, 20);
+HighLiquidity = AvgVolume20 > 500000;
+
+// ==== 5. Ði?u ki?n 4: Giá > 20 ====
+PriceAbove20 = Close > 20;
+
+// ==== 6. K?t h?p t?t c? di?u ki?n ====
+FinalFilter = AboveAllEMA AND NoBreakSupport AND HighLiquidity AND PriceAbove20;
+
+// ==== 7. Hi?n th? k?t qu? trong Analysis ====
+SetOption("NoDefaultColumns", True);
+Filter = FinalFilter;
+
+AddTextColumn(Name(), "Ticker");
+AddColumn(Close, "Gia hien tai", 1.2);
+AddColumn(EMA20, "EMA 20", 1.2);
+AddColumn(EMA60, "EMA 60", 1.2);
+AddColumn(EMA200, "EMA 200", 1.2);
+AddColumn(LowestLow10, "Ðáy 10 phiên", 1.2);
+AddColumn(AvgVolume20, "Vol TB 20P", 1.0);
+AddColumn(AboveAllEMA, "Trên EMA", 1.0);
+AddColumn(NoBreakSupport, "Không phá dáy", 1.0);
+AddColumn(HighLiquidity, "Vol > 500K", 1.0);
+AddColumn(PriceAbove20, "Giá > 20", 1.0);
+
+
+_SECTION_END();

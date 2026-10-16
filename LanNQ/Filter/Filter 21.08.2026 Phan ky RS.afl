@@ -1,0 +1,7 @@
+base = ParamStr("RS base ticker", GetBaseIndex() );
+RS = RelStrength(base);
+slope_RS = LinRegSlope(RS, 60);
+phan_ky_RS = slope_RS > 0;
+Filter = phan_ky_RS AND MA ( V, 20) > 200000;
+AddColumn(C, "Close", 1.2);
+AddColumn(slope_RS, "Slope RS", 1.2);

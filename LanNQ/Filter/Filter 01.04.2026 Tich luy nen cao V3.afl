@@ -1,0 +1,48 @@
+// -----------------------------------------------------------------
+// B? L?C C? PHI?U: GI? GIÁ VÙNG CAO & RSI H? NHI?T
+// -----------------------------------------------------------------
+
+// 1. ÐI?U KI?N 1: HHV 6 THÁNG L?N HON LLV 6 THÁNG LÀ 17%
+// 3 tháng tuong duong kho?ng 125 phiên giao d?ch
+Lookback = 120;
+High6M = HHV(H, Lookback);
+Low6M = LLV(L, Lookback);
+// HHVBars tr? v? s? phiên tính t? d?nh d?n hi?n t?i (Ví d?: d?nh cách dây 10 phiên -> 10)
+// LLVBars tr? v? s? phiên tính t? dáy d?n hi?n t?i
+HighBar = HHVBars(H, Lookback);
+LowBar = LLVBars(L, Lookback);
+
+
+// Tính m?c chênh l?ch ph?n tram gi?a Ð?nh và Ðáy 6 tháng
+RangePct = ((High6M - Low6M) / Low6M) * 100;
+Condition1 = RangePct >= 30 AND HighBar < LowBar;
+
+// 2. ÐI?U KI?N 2: GIÁ ÐÓNG C?A HI?N T?I > M?C 70% C?A NH?P TANG 6 THÁNG
+// Công th?c: Giá tr? t?i m?c 70% = Low + 0.7 * (High - Low)
+Threshold70 = Low6M + 0.5 * (High6M - Low6M);
+Condition2 = C > Threshold70;
+
+// 3. ÐI?U KI?N 3: RSI XU?T HI?N XU HU?NG GI?M TRONG 1 THÁNG (20 PHIÊN)
+// S? d?ng d? d?c (Slope) c?a du?ng RSI 14 phiên
+RSI_Val = RSI(15);
+RSISlope = LinRegSlope(RSI_Val, 40); // Ð? d?c RSI trong 40 phiên g?n nh?t
+Condition3 = RSISlope < 0;
+
+// 4. ÐI?U KI?N THANH KHO?N (B? SUNG Ð? L?C MÃ RÁC)
+AvgVol = MA(V, 20);
+LiquidityCond = AvgVol > 500000; // Kh?i lu?ng TB 20 phiên trên 100k
+
+// T?NG H?P B? L?C
+Filter = Condition1 AND Condition2 AND Condition3 AND LiquidityCond;
+
+// THI?T L?P C?T HI?N TH?
+AddColumn(C, "Gia Hien Tai", 1.2);
+AddColumn(High6M, "Gia cao nhat", 1.2);
+AddColumn(Low6M, "Gia thap nhat", 1.2);
+AddColumn(RangePct, "Bien do 6T (%)", 1.2);
+AddColumn(Threshold70, "Moc 70% gia", 1.2);
+AddColumn(RSI_Val, "RSI(14)", 1.2);
+AddColumn(RSISlope, "Do doc RSI", 1.4, colorDefault, IIf(RSISlope < 0, colorRed, colorDefault));
+
+// S?p x?p theo mã có biên d? 6 tháng l?n nh?t
+SetSortColumns(-2);

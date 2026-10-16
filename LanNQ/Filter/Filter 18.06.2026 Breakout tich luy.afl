@@ -1,0 +1,312 @@
+//------------------------------------------------------------------------------
+// 1. HAM XAC DINH DINH DAY CUA BAN
+//------------------------------------------------------------------------------
+function Get_Custom_Peak_Trough(minChange, minDistance, Peak_array, Trough_array, Plot_symbol, Plot_number)
+{	
+    exchange = MarketID(1);
+    x = BarIndex();
+    pks = 0; trs = 0;
+    pk_chg_cfs = 0; tr_chg_cfs = 0;
+    pk_x = 0; tr_x = 0;
+    pk_chg_cf_x = 0; tr_chg_cf_x = 0;
+    pre_pk_id = 0; pre_tr_id = 0;
+    pk_dis_cfs = 0; tr_dis_cfs = 0;
+    filtered_pks = 0; filtered_trs = 0;
+
+    Zig_ = Zig( C, minChange);
+    Zig_perc = ROC(Zig_, 1); 
+
+    for (i = 0; i < BarCount - 1; i++) {
+        if (Zig_perc[i] * Zig_perc[i+1] < 0) {  
+            if (Zig_perc[i] > 0) pks[i] = 1; else trs[i] = 1;
+        }
+    }
+
+    for (i = 0; i < BarCount; i++) {
+        if (pks[i] == 1) {
+            for (j = i; j < BarCount; j++) { 
+                if (C[j] <= C[i]*(1-minChange/100)) { pk_chg_cfs[j] = 1; break; }
+            }
+        }
+        if (trs[i] == 1) {   
+            for (j = i; j < BarCount; j++) {
+                if (C[j] >= C[i]*(1+minChange/100)) { tr_chg_cfs[j] = 1; break; }
+            }
+        }
+    }
+    
+    pk_x = IIf(pks, x, 0);
+    pk_chg_cf_x = IIf(pk_chg_cfs, x, 0);
+    tr_x = IIf(trs, x, 0);
+    tr_chg_cf_x = IIf(tr_chg_cfs, x, 0);
+
+    pk_x_at_cf = ValueWhen(pks, pk_x, 1); 
+    tr_x_at_cf = ValueWhen(trs, tr_x, 1); 
+    
+    for (i = 0; i < BarCount; i++) {
+        if (pks[i]) {
+            dis_rej = 0; count = 0;  
+            for (j = i; j <= Min(x[i] + minDistance, BarCount-1); j++) { 
+                count++;
+                if (C[j] > C[i]) dis_rej++; 
+            }
+            if ((dis_rej == 0) AND (count == minDistance + 1)) pk_dis_cfs[i] = 1; 
+        }
+        if (trs[i]) { 
+            dis_rej = 0; count = 0;
+            for (j = i; j <= Min(x[i] + minDistance, BarCount-1); j++) {
+                count++;
+                if (C[j] < C[i]) dis_rej++;
+            }
+            if ((dis_rej == 0) AND (count == minDistance + 1)) tr_dis_cfs[i] = 1;  
+        }
+    }
+
+    for (i = 0; i < BarCount; i++) {
+        if ((pks[i]) AND (pk_dis_cfs[i]) AND (pre_pk_id == 0)) { 
+            filtered_pks[i] = 1; pre_pk_id += 1; continue;
+        } 
+        if ((pks[i]) AND (pk_dis_cfs[i]) AND (pre_pk_id != 0)) {
+            pre_extreme = 0; 
+            for (j = i-1; j > 0; j--) {
+                if (filtered_pks[j]) { pre_extreme = 1; break; }
+                if (filtered_trs[j]) { pre_extreme = -1; break; }
+            }
+            if (pre_extreme == 1) continue;
+            else { filtered_pks[i] = 1; pre_pk_id += 1; }
+        }
+        if ((trs[i]) AND (tr_dis_cfs[i]) AND (pre_tr_id == 0)) {
+            filtered_trs[i] = 1; pre_tr_id += 1; continue;
+        } 
+        if ((trs[i]) AND (tr_dis_cfs[i]) AND (pre_tr_id != 0)) {
+            pre_extreme = 0; 
+            for (j = i-1; j > 0; j--) {
+                if (filtered_pks[j]) { pre_extreme = 1; break; }
+                if (filtered_trs[j]) { pre_extreme = -1; break; }
+            }
+            if (pre_extreme == -1) continue; 
+            else { filtered_trs[i] = 1; pre_tr_id += 1; }
+        }
+    }
+
+    VarSet(Peak_array, filtered_pks);
+    VarSet(Trough_array, filtered_trs);
+}
+
+//------------------------------------------------------------------------------
+// HAM QUY DOI TOA DO CHUYEN DUNG CHO GFX 
+//------------------------------------------------------------------------------
+function GetPixelX( bi )
+{
+    local FirstVisibleBar, LastVisibleBar, VisibleBars, LeftX, Width;
+    FirstVisibleBar = Status( "firstvisiblebar" );
+    LastVisibleBar = Status( "lastvisiblebar" );
+    VisibleBars = LastVisibleBar - FirstVisibleBar + 1;
+    LeftX = Status( "pxchartleft" );
+    Width = Status( "pxchartwidth" );
+    return LeftX + ( bi - FirstVisibleBar ) * ( Width / VisibleBars ) + ( Width / VisibleBars ) / 2;
+}
+
+function GetPixelY( price )
+{
+    local MinY, MaxY, TopY, Height;
+    MinY = Status( "axisminy" );
+    MaxY = Status( "axismaxy" );
+    TopY = Status( "pxcharttop" );
+    Height = Status( "pxchartheight" );
+    return TopY + Height - ( price - MinY ) / ( MaxY - MinY ) * Height;
+}
+
+//------------------------------------------------------------------------------
+// 2. THIET LAP THAM SO GIAO DIEN (PARAMETERS)
+//------------------------------------------------------------------------------
+SetChartOptions(0, chartShowDates);
+Plot(C, "Close", colorDefault, styleCandle); 
+
+// Tham so cho ham Peak/Trough
+minChg = Param("Zigzag Min Change (%)", 5, 1, 20, 1);
+minDist = Param("Min Distance (Bars)", 5, 1, 20, 1);
+
+// Tham so cho Cau truc tich luy
+LookbackWindow = Param("Accumulation Window", 60, 20, 100, 5);
+ExtendDays = Param("Extend Line Days", 20, 5, 100, 1); 
+
+// GIOI HAN BIEN DO DINH/DAY TICH LUY (Box Limits)
+MaxPeakRatio = Param("Max Peak Ratio (1.05 = +5%)", 1.05, 1.0, 1.20, 0.01);
+MinPeakRatio = Param("Min Peak Ratio (0.90 = -10%)", 0.90, 0.70, 1.00, 0.01); 
+
+MaxTroughRatio = Param("Max Trough Ratio (1.10 = +10%)", 1.10, 1.0, 1.30, 0.01); 
+MinTroughRatio = Param("Min Trough Ratio (0.95 = -5%)", 0.95, 0.70, 1.00, 0.01);
+
+// Goi ham de lay du lieu Dinh/Day
+Get_Custom_Peak_Trough(minChg, minDist, "myPks", "myTrs", False, False);
+Pks = VarGet("myPks");
+Trs = VarGet("myTrs");
+
+//------------------------------------------------------------------------------
+// 3. LOGIC XAC NHAN VUNG TICH LUY (UU TIEN 3 CAP)
+//------------------------------------------------------------------------------
+GfxSetOverlayMode(1); 
+
+pk_x = Cum(0); pk_y = Cum(0);
+tr_x = Cum(0); tr_y = Cum(0);
+
+lastValidIdx = -1; // Bien khoa vung chong chong cheo
+
+// Mang de luu tin hieu quet co phieu
+InAccumZone = 0; 
+StructType = 0; 
+
+// Quet tu trai sang phai (Quet tien)
+for (i = 0; i < BarCount; i++)
+{
+    // Neu dang nam trong 1 cau truc da duoc xac nhan roi thi bo qua, khong bat dau tao cau truc moi
+    if (i <= lastValidIdx) continue;
+
+    // Chi bat dau kich hoat kiem tra neu day la diem Dinh hoac Day
+    if (!Pks[i] AND !Trs[i]) continue;
+
+    pk_count = 0; tr_count = 0;
+
+    // Phong tam mat ve phia truoc (Look-ahead) de thu thap Dinh/Day
+    for (j = i; j < Min(i + LookbackWindow, BarCount); j++)
+    {
+        if (Pks[j]) { pk_x[pk_count] = j; pk_y[pk_count] = H[j]; pk_count++; }
+        if (Trs[j]) { tr_x[tr_count] = j; tr_y[tr_count] = L[j]; tr_count++; }
+    }
+
+    is_3_pair = False;
+    is_2_pair = False;
+
+    // ----------------------------------------------------
+    // TRUONG HOP A: Kiem tra co du 3 cap khong (Tham lam)
+    // ----------------------------------------------------
+    if (pk_count >= 3 AND tr_count >= 3)
+    {
+        validPks3 = True; validTrs3 = True;
+
+        for (k = 1; k < 3; k++) {
+            if (pk_y[k] > pk_y[k-1] * MaxPeakRatio OR pk_y[k] < pk_y[k-1] * MinPeakRatio) { validPks3 = False; break; }
+        }
+        for (k = 1; k < 3; k++) {
+            if (tr_y[k] < tr_y[k-1] * MinTroughRatio OR tr_y[k] > tr_y[k-1] * MaxTroughRatio) { validTrs3 = False; break; }
+        }
+
+        if (validPks3 AND validTrs3) is_3_pair = True;
+    }
+
+    // ----------------------------------------------------
+    // TRUONG HOP B: Neu 3 cap that bai, kiem tra 2 cap
+    // ----------------------------------------------------
+    if (!is_3_pair AND pk_count >= 2 AND tr_count >= 2)
+    {
+        validPks2 = True; validTrs2 = True;
+
+        for (k = 1; k < 2; k++) {
+            if (pk_y[k] > pk_y[k-1] * MaxPeakRatio OR pk_y[k] < pk_y[k-1] * MinPeakRatio) { validPks2 = False; break; }
+        }
+        for (k = 1; k < 2; k++) {
+            if (tr_y[k] < tr_y[k-1] * MinTroughRatio OR tr_y[k] > tr_y[k-1] * MaxTroughRatio) { validTrs2 = False; break; }
+        }
+
+        if (validPks2 AND validTrs2) is_2_pair = True;
+    }
+
+    // ----------------------------------------------------
+    // XU LY VE NEU HOP LE (Chi chon 1 trong 2 truong hop)
+    // ----------------------------------------------------
+    if (is_3_pair OR is_2_pair)
+    {
+        // Xac dinh do dai cua mang de dua vao tinh OLS
+        draw_pk_count = IIf(is_3_pair, 3, 2);
+        draw_tr_count = IIf(is_3_pair, 3, 2);
+
+        // Phuong trinh duong Khang Cu (Resistance)
+        sumX = 0; sumY = 0; sumXY = 0; sumX2 = 0;
+        for(k = 0; k < draw_pk_count; k++) {
+            sumX += pk_x[k]; sumY += pk_y[k];
+            sumXY += pk_x[k] * pk_y[k]; sumX2 += pk_x[k] * pk_x[k];
+        }
+        n_pk = draw_pk_count;
+        denom_pk = (n_pk * sumX2 - sumX * sumX);
+        if (denom_pk != 0) {
+            m_p = (n_pk * sumXY - sumX * sumY) / denom_pk; 
+            b_p = (sumY - m_p * sumX) / n_pk;              
+        } else { m_p = 0; b_p = pk_y[0]; }
+
+        // Phuong trinh duong Ho Tro (Support)
+        sumX = 0; sumY = 0; sumXY = 0; sumX2 = 0;
+        for(k = 0; k < draw_tr_count; k++) {
+            sumX += tr_x[k]; sumY += tr_y[k];
+            sumXY += tr_x[k] * tr_y[k]; sumX2 += tr_x[k] * tr_x[k];
+        }
+        n_tr = draw_tr_count;
+        denom_tr = (n_tr * sumX2 - sumX * sumX);
+        if (denom_tr != 0) {
+            m_t = (n_tr * sumXY - sumX * sumY) / denom_tr; 
+            b_t = (sumY - m_t * sumX) / n_tr;              
+        } else { m_t = 0; b_t = tr_y[0]; }
+
+        // Toa do tinh toan Gfx va Extend
+        start_res_x = pk_x[0];
+        start_sup_x = tr_x[0];
+
+        end_res_x = Min(pk_x[draw_pk_count - 1] + ExtendDays, BarCount - 1);
+        end_sup_x = Min(tr_x[draw_tr_count - 1] + ExtendDays, BarCount - 1);
+        
+        y_res_start = m_p * start_res_x + b_p;
+        y_res_end   = m_p * end_res_x + b_p;
+        
+        y_sup_start = m_t * start_sup_x + b_t;
+        y_sup_end   = m_t * end_sup_x + b_t;
+
+        FirstVis = Status("firstvisiblebar");
+        LastVis = Status("lastvisiblebar");
+        
+        if (end_res_x >= FirstVis AND start_res_x <= LastVis) {
+            GfxSelectPen( colorRed, 2, 0 );
+            GfxMoveTo( GetPixelX(start_res_x), GetPixelY(y_res_start) );
+            GfxLineTo( GetPixelX(end_res_x), GetPixelY(y_res_end) );
+        }
+        
+        if (end_sup_x >= FirstVis AND start_sup_x <= LastVis) {
+            GfxSelectPen( colorBrightGreen, 2, 0 );
+            GfxMoveTo( GetPixelX(start_sup_x), GetPixelY(y_sup_start) );
+            GfxLineTo( GetPixelX(end_sup_x), GetPixelY(y_sup_end) );
+        }
+
+        // ========================================================================
+        // DANH DAU MANG DE PHUC VU CHO FILTER/SCANNING
+        // ========================================================================
+        struct_end_idx = Max(pk_x[draw_pk_count - 1], tr_x[draw_tr_count - 1]);
+        zone_end_idx = Max(end_res_x, end_sup_x);
+
+        for (m = struct_end_idx; m <= zone_end_idx; m++) {
+            if (m < BarCount) {
+                InAccumZone[m] = True;
+                StructType[m] = draw_pk_count; // Luu lai la cau truc 2 hay 3 cap
+            }
+        }
+
+        // KHOA CHUOI
+        lastValidIdx = struct_end_idx; 
+    }
+}
+
+//------------------------------------------------------------------------------
+// 4. HIEN THI (PLOTTING) TRUYEN THONG
+//------------------------------------------------------------------------------
+PlotShapes(IIf(Pks, shapeSmallCircle, shapeNone), colorRed, 0, H, 10);
+PlotShapes(IIf(Trs, shapeSmallCircle, shapeNone), colorBrightGreen, 0, L, -10);
+
+Title = StrFormat("{{NAME}} - {{INTERVAL}} {{DATE}} Open %g, Hi %g, Lo %g, Close %g (%.1f%%)\n", O, H, L, C, SelectedValue( ROC( C, 1 ) ) )
+      + EncodeColor(colorYellow) + "Accumulation Zone Detection active (Exclusive 2-3 Pair + Scanner)";
+
+//------------------------------------------------------------------------------
+// 5. EXPLORATION / SCANNING
+//------------------------------------------------------------------------------
+Filter = InAccumZone AND MA ( V , 20 ) > 200000 AND C > 10;
+
+AddColumn(StructType, "Cap Dinh/Day", 1.0, colorDefault, IIf(StructType == 3, colorBrightGreen, colorLightBlue));
+AddColumn(C, "Close", 1.2);
+AddColumn(MA ( V , 20 ), "VolumeMA20", 1.0);

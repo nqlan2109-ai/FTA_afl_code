@@ -1,0 +1,47 @@
+// -----------------------------------------------------------------
+// B? L?C C? PHI?U: TANG TRU?NG M?NH & TÍCH LUY Ð?NH
+// -----------------------------------------------------------------
+
+// 1. Ð?NH NGHIA ÐI?U KI?N 1: TANG M?NH TRONG 3 THÁNG (KHO?NG 60 PHIÊN)
+// ? dây ta dùng m?c tang t?i thi?u 20% trong 60 phiên g?n nh?t
+LookbackPeriod = Param("Giai doan tang truong (phien)", 60, 20, 120, 1);
+MinGain = Param("Muc tang toi thieu (%)", 40, 5, 100, 5);
+
+Price60DaysAgo = Ref(C, -LookbackPeriod);
+Gain = ((HHV(H, LookbackPeriod)  - Price60DaysAgo) / Price60DaysAgo) * 100;
+Condition1 = Gain >= MinGain;
+
+// 2. Ð?NH NGHIA ÐI?U KI?N 2: TÍCH LUY TRÊN VÙNG Ð?NH
+// Tích luy trong 2-4 tu?n g?n dây v?i biên d? hep (vi du < 10%)
+AccumulationPeriod = Param("So phien tich luy", 15, 5, 30, 1);
+MaxVolatility = Param("Bien do tich luy toi da (%)", 10, 2, 20, 1);
+
+HighInPeriod = HHV(H, AccumulationPeriod);
+LowInPeriod = LLV(L, AccumulationPeriod);
+RangePercentage = ((HighInPeriod - LowInPeriod) / LowInPeriod) * 100;
+
+// Giá hi?n t?i ph?i n?m g?n d?nh cao nh?t 1 nam (ho?c 6 tháng)
+YearlyHigh = HHV(H, 60);
+NearPeak = C >= (YearlyHigh * 0.80); // Cách d?nh không quá 10%
+
+Condition2 = RangePercentage <= MaxVolatility AND NearPeak;
+
+// 3. ÐI?U KI?N 3: Ð? D?C ÐU?NG VOLUME MA20 PH?I ÂM (SLOPE < 0)
+VolMA = MA(V, 20);
+// Tính d? d?c d?a trên h?i quy tuy?n tính trong 5 phiên g?n nh?t
+VolSlope = LinRegSlope(VolMA, 5); 
+Condition3 = VolSlope < 0;
+
+// 3. ÐI?U KI?N THANH KHO?N (B? SUNG Ð? TRÁNH MÃ RÁC)
+MinVol = Param("Thanh khoan TB 20 phien", 100000, 10000, 1000000, 10000);
+AvgVol = MA(V, 20);
+LiquidityCond = AvgVol >= MinVol;
+
+// K?T QU? L?C
+Filter = Condition1 AND Condition2 AND LiquidityCond AND C > LowInPeriod AND C < HighInPeriod AND Condition3;
+
+// Hi?n th? các c?t thông tin trong b?ng l?c
+AddColumn(C, "Gia hien tai", 1.2);
+AddColumn(Gain, "Muc tang 3th (%)", 1.2, colorDefault, IIf(Gain > 30, colorGreen, colorDefault));
+AddColumn(RangePercentage, "Bien do tich luy (%)", 1.2, colorDefault, IIf(RangePercentage < 5, colorBlue, colorDefault));
+AddColumn(AvgVol, "KLGD TB 20p", 1.0);

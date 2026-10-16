@@ -1,0 +1,43 @@
+Lookback = 60;
+High3M = HHV(H, Lookback);
+Low3M = LLV(L, Lookback);
+
+HighBar = HHVBars(H, Lookback);
+LowBar = LLVBars(L, Lookback);
+
+RangePct = ((High3M - Low3M) / Low3M) * 100;
+Condition1 = RangePct <= 25 AND HighBar < LowBar;
+
+Condition2 = MA ( C , 20 ) < MA( C , 200 ) AND C > Low3M AND C < High3M;
+
+pattern_valid = 0;
+for ( i = 0; i < BarCount - 1; i++ );
+{
+if ( H[i] != High3M[i] AND L[i] != Low3M[i] )
+   {
+   pattern_valid = 1;
+   }
+}
+
+VolSlope = LinRegSlope( MA ( OBV () , 20) , 60);
+//Condition3 = VolSlope > 0;
+
+AvgVol = MA(V, 20);
+LiquidityCond = AvgVol > 200000; 
+
+// T?NG H?P B? L?C
+Filter = Condition1 
+AND Condition2 
+//AND Condition3 
+AND LiquidityCond
+AND pattern_valid;
+
+// THI?T L?P C?T HI?N TH?
+AddColumn(C, "Gia Hien Tai", 1.2);
+AddColumn(High3M, "Gia cao nhat", 1.2);
+AddColumn(Low3M, "Gia thap nhat", 1.2);
+AddColumn(RangePct, "Bien do 3T (%)", 1.2);
+AddColumn(VolSlope, "Do doc MA20Vol", 1.4, colorDefault, IIf(VolSlope < 0, colorRed, colorDefault));
+
+// S?p x?p theo mã có biên d? 6 tháng l?n nh?t
+SetSortColumns(-2);
